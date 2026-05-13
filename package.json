@@ -1,0 +1,35 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend APIs and database system for the college sports management platform.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/server.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krish24304/SPORTS-MANAGEMENT-SYSTEM-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/krish24304/SPORTS-MANAGEMENT-SYSTEM-backend/issues"
+  },
+  "homepage": "https://github.com/krish24304/SPORTS-MANAGEMENT-SYSTEM-backend#readme",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.7.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.8.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "prisma": "^6.8.2"
+  }
+}
