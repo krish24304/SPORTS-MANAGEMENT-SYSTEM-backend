@@ -11,9 +11,14 @@ app.get("/", (req, res) => {
 });
 app.get("/sports", async (req, res) => {
 
-  const sports = await prisma.sport.findMany();
-
-  res.json(sports);
+  res.json([
+  {
+    id: 1,
+    name: "Football",
+    totalGear: 30,
+    availableGear: 18,
+  },
+]);
 
 });
 const PORT = 5000;
