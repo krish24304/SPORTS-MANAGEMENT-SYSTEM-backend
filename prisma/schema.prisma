@@ -4,40 +4,239 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
+
 model User {
-  id        Int       @id @default(autoincrement())
-  name      String
-  email     String    @unique
-  role      String
-  bookings  Booking[]
+  id Int @id @default(autoincrement())
+
+  name     String
+  email    String  @unique
+  password String
+  rollNo   String?
+  phone    String?
+  role     String // student, staff, admin
+
+  idCard      String?
+  idCardPhoto String?
+
+  createdAt DateTime @default(now())
+
+  bookings        Booking[]
+  requests        Request[]
+  issuedGears     IssuedGear[]
+  issueRequests   IssueRequest[]
+  Slot            Slot[]
+  TeamReservation TeamReservation[]
 }
 
 model Sport {
-  id              Int      @id @default(autoincrement())
-  name            String
-  totalGear       Int
-  availableGear   Int
-  slots           Slot[]
+  id Int @id @default(autoincrement())
+
+  name String @unique
+
+  // Slot System Configuration
+  hasSlotSystem       Boolean @default(false)
+  slotDurationMinutes Int     @default(30) // 30 min, 60 min, 90 min, etc.
+
+  // Resource Management
+  totalCourts     Int @default(1)
+  availableCourts Int @default(1)
+
+  maintenance        Boolean @default(false)
+  maintenanceMessage String?
+
+  createdAt DateTime @default(now())
+
+  slots             Slot[]
+  gears             Gear[]
+  bookings          Booking[]
+  notices           Notice[]
+  resources         Resource[]
+  hasDynamicBooking Boolean           @default(true)
+  hasTeamSlots      Boolean           @default(false)
+  TeamReservation   TeamReservation[]
 }
 
+// Only for slot-based sports
 model Slot {
-  id         Int      @id @default(autoincrement())
-  time       String
-  available  Boolean
+  id Int @id @default(autoincrement())
 
-  sportId    Int
-  sport      Sport    @relation(fields: [sportId], references: [id])
+  sportId Int
+  sport   Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
 
-  bookings   Booking[]
+  startTime DateTime
+  endTime   DateTime
+
+  slotType   String  @default("available") // "available", "team_reserved"
+  isActive   Boolean @default(true)
+  bookedById Int?
+  bookedBy   User?   @relation(fields: [bookedById], references: [id], onDelete: SetNull)
+
+  bookings Booking[]
+  createdAt DateTime @default(now())
+  
+  maxCapacity Int @default(1)
+
+  bookedCount Int @default(0)
+
+  @@unique([sportId, startTime, endTime])
+}
+
+model Gear {
+  id Int @id @default(autoincrement())
+
+  name        String
+  description String?
+
+  sportId Int
+  sport   Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  totalQuantity     Int
+  availableQuantity Int
+
+  damagedQuantity Int @default(0)
+
+  issuedGears IssuedGear[]
+
+  createdAt DateTime @default(now())
+}
+
+model Resource {
+  id Int @id @default(autoincrement())
+
+  name String // Court, Table, Field, etc.
+  type String // court, table, field
+
+  sportId Int
+  sport   Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  totalAvailable     Int
+  currentlyAvailable Int
+
+  createdAt DateTime @default(now())
 }
 
 model Booking {
-  id       Int    @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  userId   Int
-  slotId   Int
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user     User   @relation(fields: [userId], references: [id])
-  slot     Slot   @relation(fields: [slotId], references: [id])
+  sportId Int
+  sport   Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  slotId Int?
+  slot   Slot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+
+  bookingType String @default("slot") // "slot", "gear", "resource"
+
+  gearsBooked     Json? // { gearId: quantity }
+  resourcesBooked Json? // { resourceId: quantity }
+  active          Boolean @default(true)
+  status          String  @default("active") // active, cancelled, completed, returned
+
+  bookedAt    DateTime  @default(now())
+  startTime   DateTime?
+  endTime     DateTime?
+  cancelledAt DateTime?
+  returnRequestedAt DateTime?
+returnedAt DateTime?
+returnedById Int?
+
+  notes String?
+}
+
+model IssuedGear {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gearId Int
+  gear   Gear @relation(fields: [gearId], references: [id], onDelete: Cascade)
+
+  quantityIssued Int
+
+  issueDate          DateTime  @default(now())
+  expectedReturnDate DateTime?
+  returnDate         DateTime?
+
+  status String @default("issued") // issued, returned, damaged_reported
+
+  condition String? // good, minor_damage, major_damage
+
+  issueNotes String?
+
+  createdAt DateTime @default(now())
+}
+
+model IssueRequest {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sportName      String
+  gearsRequested Json // array of { gearId, quantity }
+
+  status String @default("pending") // pending, approved, rejected
+
+  requestedAt   DateTime  @default(now())
+  approvedAt    DateTime?
+  approvalNotes String?
+
+  createdAt DateTime @default(now())
+}
+
+model Request {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  message String
+  status  String @default("pending")
+
+  createdAt DateTime @default(now())
+}
+
+model Notice {
+  id Int @id @default(autoincrement())
+
+  title   String
+  message String
+
+  sportId Int?
+  sport   Sport? @relation(fields: [sportId], references: [id], onDelete: SetNull)
+
+  type String @default("sport")
+
+  createdAt DateTime @default(now())
+}
+
+model TeamReservation {
+  id Int @id @default(autoincrement())
+
+  teamName String
+  sportId  Int
+  sport    Sport  @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  startTime DateTime
+  endTime   DateTime
+
+  bookedById Int?
+  bookedBy   User? @relation(fields: [bookedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+}
+
+model Admin {
+  id Int @id @default(autoincrement())
+
+  name     String
+  email    String @unique
+  password String
+
+  createdAt DateTime @default(now())
 }
