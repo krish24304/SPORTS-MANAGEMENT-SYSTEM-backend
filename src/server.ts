@@ -4,28 +4,40 @@ import bcrypt from "bcryptjs";
 import path from "path";
 import { upload } from "./middleware/upload";
 import { PrismaClient } from "@prisma/client";
-
+import resourceRoutes
+from "./routes/resource.routes";
+import resourceUnitRoutes from "./routes/resourceUnitRoutes";
 const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use("/resources", resourceRoutes);
+app.use("/resource-units", resourceUnitRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // ==================== AUTHENTICATION ====================
 
-// User signup
-app.post("/auth/signup", upload.single("idCard"),async (req: Request, res: Response) => {
+// U
+app.post("/auth/signup", upload.single("profilePicture"), async (req: Request, res: Response) => {
   try {
-    const { name, email, password, rollNo, role } = req.body;
-    const file = req.file;
-    console.log(file);
+    const {
+      name,
+      email,
+      password,
+      role,
+      rollNo,
+    } = req.body;
+    console.log("REQ BODY =", req.body);
+    console.log("FILE =", req.file);
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
-
+    
     if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+      return res.status(400).json({
+        message: "User already exists",
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -35,22 +47,23 @@ app.post("/auth/signup", upload.single("idCard"),async (req: Request, res: Respo
         name,
         email,
         password: hashedPassword,
-        rollNo: rollNo || null,
-        role: role || "student",
-      },
+        role,
+        rollNo,
+        idCardPhoto: req.file
+  ? `/uploads/${req.file.filename}`
+  : null,      },
     });
-
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
-  } catch (error) {
+    res.json(user);
+  } catch (error: any) {
+    console.error("SIGNUP ERROR:");
     console.error(error);
-    res.status(500).json({ message: "Signup failed" });
+    res.status(500).json({
+      message: "Signup failed",
+      error: error?.message,
+    });
   }
 });
+
 
 // User login
 app.post("/auth/login", async (req: Request, res: Response) => {
@@ -89,28 +102,90 @@ app.post("/auth/login", async (req: Request, res: Response) => {
 // Get all sports
 app.get("/sports", async (req: Request, res: Response) => {
   try {
-
     const sports = await prisma.sport.findMany({
       include: {
-        gears: true,
-        resources: true,
-
-        slots: true,
-      },
+  gears: true,
+  resourceUnits: {
+    orderBy: {
+      id: "asc",
+    },
+  },
+  slots: true,
+  bookings: true,
+},
     });
 
-    res.json(sports);
+    const formattedSports = sports.map((sport) => ({
+  ...sport,
 
+  resources: sport.resourceUnits,
+
+  totalBookings: sport.bookings.length,
+
+  totalStudents: new Set(
+    sport.bookings.map((booking) => booking.userId)
+  ).size,
+
+  totalStaff: 0,
+}));
+
+    res.json(formattedSports);
   } catch (error) {
-
+  
     console.error(error);
 
     res.status(500).json({
       message: "Failed to fetch sports",
     });
-
   }
 });
+app.put("/sports-maintenance/:id",
+  async (req, res) => {
+
+    try {
+
+      const sportId =
+        Number(req.params.id);
+
+      const {
+        maintenance,
+        maintenanceMessage,
+      } = req.body;
+
+      const sport =
+        await prisma.sport.update({
+
+          where: {
+            id: sportId,
+          },
+
+          data: {
+
+            maintenance,
+
+            maintenanceMessage,
+
+          },
+
+        });
+
+      res.json(sport);
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+
+        message:
+          "Failed to update maintenance",
+
+      });
+
+    }
+
+  }
+);
 // Get single sport details
 app.get("/sports/:id", async (req: Request, res: Response) => {
   try {
@@ -120,7 +195,11 @@ app.get("/sports/:id", async (req: Request, res: Response) => {
       where: { id: parseInt(req.params.id as string, 10) },
       include: {
         gears: true,
-        resources: true,
+        resourceUnits: {
+          orderBy: {
+            id: "asc",
+          },
+        },
         slots: {
          orderBy: { startTime: "asc" },
         },
@@ -131,7 +210,10 @@ app.get("/sports/:id", async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Sport not found" });
     }
 
-    res.json(sport);
+    res.json({
+  ...sport,
+  resources: sport.resourceUnits,
+});
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch sport" });
@@ -141,7 +223,14 @@ app.get("/sports/:id", async (req: Request, res: Response) => {
 // Admin: Create sport
 app.post("/sports", async (req: Request, res: Response) => {
   try {
-    const { name, hasSlotSystem, slotDurationMinutes, totalCourts, availableCourts } = req.body;
+    const {
+  name,
+  resourceType,
+  hasSlotSystem,
+  slotDurationMinutes,
+  totalCourts,
+  availableCourts,
+} = req.body;
     if (availableCourts > totalCourts) {
   return res.status(400).json({
     message:
@@ -149,16 +238,45 @@ app.post("/sports", async (req: Request, res: Response) => {
   });
 }
     const sport = await prisma.sport.create({
-      data: {
-        name,
-        hasSlotSystem: hasSlotSystem || false,
-        slotDurationMinutes: slotDurationMinutes || 30,
-        totalCourts: totalCourts || 1,
-        availableCourts: availableCourts || 1,
-      },
-    });
+  data: {
+    name,
+    resourceType: resourceType || "Court",
+    hasSlotSystem: hasSlotSystem || false,
+    slotDurationMinutes: slotDurationMinutes || 30,
+    totalCourts: totalCourts || 1,
+    availableCourts: availableCourts || 1,
+  },
+});
 
-    res.json(sport);
+// Automatically create Resource Units
+await prisma.resourceUnit.createMany({
+  data: Array.from(
+    { length: totalCourts || 1 },
+    (_, index) => ({
+      sportId: sport.id,
+      name: `${resourceType || "Court"} ${index + 1}`,
+      type: resourceType || "Court",
+      status: "available",
+    })
+  ),
+});
+
+const updatedSport = await prisma.sport.findUnique({
+  where: {
+    id: sport.id,
+  },
+  include: {
+    resourceUnits: true,
+    gears: true,
+    slots: true,
+    bookings: true,
+  },
+});
+
+res.json({
+  ...updatedSport,
+  resources: updatedSport?.resourceUnits ?? [],
+});
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to create sport" });
@@ -166,36 +284,110 @@ app.post("/sports", async (req: Request, res: Response) => {
 });
 
 // Admin: Update sport configuration
-app.put("/sports/:id", async (req: Request, res: Response) => {
+app.put("/sports/:id", async (req, res) => {
   try {
-    const id = parseInt(req.params.id as string, 10);
-    const { name, hasSlotSystem, slotDurationMinutes, totalCourts, availableCourts, maintenance, maintenanceMessage } = req.body;
-    if (availableCourts > totalCourts) {
-  return res.status(400).json({
-    message:
-      "Available Courts cannot exceed Total Courts",
-  });
-}
-    const sport = await prisma.sport.update({
+
+    const id = Number(req.params.id);
+
+    const {
+      name,
+      resourceType,
+      hasSlotSystem,
+      slotDurationMinutes,
+      totalCourts,
+      availableCourts,
+      maintenance,
+      maintenanceMessage,
+    } = req.body;
+
+    //--------------------------------
+    // Update sport
+    //--------------------------------
+
+    await prisma.sport.update({
       where: { id },
       data: {
         name,
+        resourceType,
         hasSlotSystem,
         slotDurationMinutes,
         totalCourts,
-        availableCourts: totalCourts,
+        availableCourts,
         maintenance,
         maintenanceMessage,
       },
     });
 
-    res.json(sport);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to update sport" });
-  }
-});
+    //--------------------------------
+    // IF TYPE CHANGED
+    //--------------------------------
 
+    if (resourceType) {
+
+      await prisma.resourceUnit.deleteMany({
+        where: {
+          sportId: id,
+        },
+      });
+
+      await prisma.resourceUnit.createMany({
+        data: Array.from(
+          { length: totalCourts },
+          (_, i) => ({
+            sportId: id,
+            name: `${resourceType} ${i + 1}`,
+            type: resourceType,
+            status: "available",
+          })
+        ),
+      });
+
+    }
+
+    //--------------------------------
+
+    const updatedSport =
+      await prisma.sport.findUnique({
+
+        where: { id },
+
+        include: {
+
+          resourceUnits: true,
+
+          gears: true,
+
+          slots: true,
+
+          bookings: true,
+
+        },
+
+      });
+
+    res.json({
+
+      ...updatedSport,
+
+      resources: updatedSport?.resourceUnits,
+
+    });
+
+  }
+
+  catch (err) {
+
+    console.log(err);
+
+    res.status(500).json({
+
+      message: "Failed",
+
+    });
+
+  }
+
+});
 // Admin: Delete sport
 app.delete("/sports/:id", async (req: Request, res: Response) => {
   try {
@@ -266,25 +458,28 @@ app.post("/slots/generate", async (req: Request, res: Response) => {
 app.post("/slots", async (req: Request, res: Response) => {
   try {
 
-    const {
+  const {
   startTime,
   endTime,
   slotType,
   sportId,
-  capacity,
+
 } = req.body;
 
+  const sport = await prisma.sport.findUnique({
+  where: {
+    id: Number(sportId),
+  },
+});
     const slot = await prisma.slot.create({
       data: {
-  startTime: new Date(startTime),
-  endTime: new Date(endTime),
-  slotType,
-  sportId,
-
-  capacity: Number(capacity),
-
-  bookedCount: 0,
-},
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        slotType,
+        sportId,
+        maxCapacity: sport?.totalCourts || 1,
+        bookedCount: 0,
+      },
     });
 
     res.json(slot);
@@ -299,6 +494,130 @@ app.post("/slots", async (req: Request, res: Response) => {
 
   }
 });
+app.get("/slots/:sportId",
+  async (req, res) => {
+
+    try {
+
+      const sportId =
+        Number(req.params.sportId);
+
+      const slots =
+        await prisma.slot.findMany({
+
+          where: {
+            sportId,
+          },
+
+          include: {
+            bookedBy: true,
+          },
+
+          orderBy: {
+            startTime: "asc",
+          },
+
+        });
+
+      res.json(slots);
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+        message: "Failed"
+      });
+
+    }
+
+  }
+);
+app.delete("/slots/:id",
+  async (req, res) => {
+
+    try {
+
+      const slotId =
+        Number(req.params.id);
+
+      await prisma.slot.delete({
+
+        where: {
+          id: slotId,
+        },
+
+      });
+
+      res.json({
+        message: "Deleted"
+      });
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+        message: "Delete Failed"
+      });
+
+    }
+
+  }
+);
+app.put("/slots/toggle/:id",
+  async (req, res) => {
+
+    try {
+
+      const slotId =
+        Number(req.params.id);
+
+      const slot =
+        await prisma.slot.findUnique({
+
+          where: {
+            id: slotId,
+          },
+
+        });
+
+      if (!slot) {
+
+        return res.status(404).json({
+          message: "Slot not found"
+        });
+
+      }
+
+      const updated =
+        await prisma.slot.update({
+
+          where: {
+            id: slotId,
+          },
+
+          data: {
+            isActive:
+              !slot.isActive,
+          },
+
+        });
+
+      res.json(updated);
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+        message: "Failed"
+      });
+
+    }
+
+  }
+);
 app.delete("/slot/:id", async (req: Request, res: Response) => {
 
   try {
@@ -337,13 +656,17 @@ app.get("/sports/:id/available-slots", async (req: Request, res: Response) => {
     const slots = await prisma.slot.findMany({
       where: {
         sportId,
-        startTime: { gte: now },
-        endTime: { lte: sixHoursLater },
+        startTime: {
+          gte: now,
+          lte: sixHoursLater,
+        },
       },
-      orderBy: { startTime: "asc" },
+      orderBy: {
+        startTime: "asc",
+      },
     });
 
-    // Include booking info
+
     const slotsWithBooking = await Promise.all(
       slots.map(async (slot: any) => {
         const booking = await prisma.booking.findFirst({
@@ -351,20 +674,35 @@ app.get("/sports/:id/available-slots", async (req: Request, res: Response) => {
             slotId: slot.id,
             status: "active",
           },
-          include: { 
-            user: { 
-              select: { 
-                id: true, 
+          include: {
+            user: {
+              select: {
+                id: true,
                 name: true,
-                  rollNo: true
- } } },
+                rollNo: true,
+              },
+            },
+          },
+        });
+
+        const reservation = await prisma.teamReservation.findFirst({
+          where: {
+            sportId,
+            startTime: {
+              lte: slot.startTime,
+            },
+            endTime: {
+              gte: slot.endTime,
+            },
+          },
         });
 
         return {
           ...slot,
           isBooked: !!booking,
           bookedBy: booking?.user,
-          isTeamReserved: slot.slotType === "team_reserved",
+          isTeamReserved: !!reservation,
+          teamName: reservation?.teamName,
         };
       })
     );
@@ -372,7 +710,9 @@ app.get("/sports/:id/available-slots", async (req: Request, res: Response) => {
     res.json(slotsWithBooking);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Failed to fetch slots" });
+    res.status(500).json({
+      message: "Failed to get available slots",
+    });
   }
 });
 
@@ -460,34 +800,54 @@ app.get("/sports/:id/gears", async (req: Request, res: Response) => {
 // ==================== RESOURCES MANAGEMENT ====================
 
 // Admin: Create resource (courts, tables)
-app.post("/resources", async (req: Request, res: Response) => {
-  try {
-    const { name, type, sportId, totalAvailable } = req.body;
 
-    const resource = await prisma.resource.create({
-      data: {
-        name,
-        type,
+app.post("/sports/:id/resources", async (req, res) => {
+  try {
+    const sportId = Number(req.params.id);
+
+    const { resources } = req.body;
+
+    if (!Array.isArray(resources) || resources.length === 0) {
+      return res.status(400).json({
+        message: "No resources supplied",
+      });
+    }
+
+    await prisma.resourceUnit.createMany({
+      data: resources.map((resource: any) => ({
         sportId,
-        totalAvailable,
-        currentlyAvailable: totalAvailable,
+        name: resource.name,
+        type: resource.type,
+        status: "available",
+      })),
+    });
+
+    const created = await prisma.resourceUnit.findMany({
+      where: {
+        sportId,
+      },
+      orderBy: {
+        id: "asc",
       },
     });
 
-    res.json(resource);
+    res.json(created);
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to create resource" });
+    console.log(error);
+
+    res.status(500).json({
+      message: "Failed to create resources",
+    });
   }
 });
-
-// Get sport resources
-app.get("/sports/:id/resources", async (req: Request, res: Response) => {
+app.get("/sports/:id/resources", async (req, res) => {
   try {
-    const sportId = parseInt(req.params.id as string, 10);
+    const sportId = Number(req.params.id);
 
-    const resources = await prisma.resource.findMany({
+    const resources = await prisma.resourceUnit.findMany({
       where: { sportId },
+      orderBy: { id: "asc" },
     });
 
     res.json(resources);
@@ -495,6 +855,124 @@ app.get("/sports/:id/resources", async (req: Request, res: Response) => {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch resources" });
   }
+});
+
+app.patch("/resources/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const resource = await prisma.resourceUnit.update({
+      where: { id },
+      data: {
+        name: req.body.name,
+      },
+    });
+
+    res.json(resource);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Rename failed" });
+  }
+});
+
+app.delete("/resources/:id", async (req, res) => {
+  try {
+    await prisma.resourceUnit.delete({
+      where: {
+        id: Number(req.params.id),
+      },
+    });
+
+    res.json({
+      message: "Deleted",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Delete failed",
+    });
+  }
+});
+
+app.patch("/resources/:id/status", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const resource = await prisma.resourceUnit.update({
+      where: { id },
+      data: {
+        status: req.body.status,
+        maintenanceMessage: req.body.maintenanceMessage,
+      },
+    });
+
+    res.json(resource);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Update failed",
+    });
+  }
+});
+app.put("/resource-units/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    const {
+      name,
+      status,
+      maintenanceMessage,
+    } = req.body;
+
+    const updated =
+      await prisma.resourceUnit.update({
+        where: { id },
+
+        data: {
+          ...(name !== undefined && { name }),
+          ...(status !== undefined && { status }),
+          ...(maintenanceMessage !== undefined && {
+            maintenanceMessage,
+          }),
+        },
+      });
+
+    res.json(updated);
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "Failed to update resource",
+    });
+  }
+});
+
+app.delete("/resource-units/:id", async (req,res)=>{
+
+    try{
+
+        await prisma.resourceUnit.delete({
+
+            where:{
+                id:Number(req.params.id)
+            }
+
+        });
+
+        res.json({
+            success:true
+        });
+
+    }catch(err){
+
+        console.log(err);
+
+        res.status(500).json({
+            message:"Delete failed"
+        });
+
+    }
+
 });
 
 // ==================== BOOKINGS ====================
@@ -520,6 +998,25 @@ app.post("/bookings/slot", async (req: Request, res: Response) => {
 
     // Check slot availability
     const slot = await prisma.slot.findUnique({ where: { id: slotId } });
+    const sport =
+await prisma.sport.findUnique({
+
+  where: {
+    id: sportId,
+  },
+
+});
+
+if (sport?.maintenance) {
+
+  return res.status(400).json({
+
+    message:
+      "Sport is under maintenance",
+
+  });
+
+}
 
     if (!slot || slot.slotType === "team_reserved") {
       return res.status(400).json({ message: "Slot is not available" });
@@ -699,14 +1196,18 @@ app.post("/bookings/:id/cancel", async (req: Request, res: Response) => {
         cancelledAt: new Date(),
       },
     });
-      await prisma.slot.update({
-      where: { id: booking.slotId },
-      data: {
-        bookedCount: {
-          decrement: 1,
-        },
+      if (booking.slotId) {
+  await prisma.slot.update({
+    where: {
+      id: booking.slotId,
+    },
+    data: {
+      bookedCount: {
+        decrement: 1,
       },
-    });
+    },
+  });
+}
     res.json({
       message: "Booking cancelled successfully",
       booking: updatedBooking,
@@ -716,43 +1217,149 @@ app.post("/bookings/:id/cancel", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to cancel booking" });
   }
 });
-app.get(
-  "/bookings/history",
-  async (
-    req: Request,
-    res: Response
-  ) => {
+app.put("/return-request/:id", async (req, res) => {
+  try {
+
+    const bookingId = Number(req.params.id);
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId }
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        message: "Booking not found"
+      });
+    }
+
+    if (booking.status === "completed") {
+      return res.status(400).json({
+        message: "Booking already returned"
+      });
+    }
+
+    if (booking.status === "return_requested") {
+      return res.status(400).json({
+        message: "Return already requested"
+      });
+    }
+
+    const updatedBooking =
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: "return_requested",
+          returnRequestedAt: new Date()
+        }
+      });
+
+    res.json(updatedBooking);
+
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).json({
+      message: "Return request failed"
+    });
+  }
+});
+app.put("/approve-return/:id",
+  async (req, res) => {
     try {
+      const bookingId = Number(req.params.id);
+      const booking = await prisma.booking.findUnique({
+        where: {
+          id: bookingId,
+        },
+      });
 
-      const bookings =
-        await prisma.booking.findMany({
-
-          include: {
-            user: true,
-            sport: true,
-            slot: true,
-          },
-
-          orderBy: {
-            bookedAt: "desc",
-          },
-
+      if (!booking) {
+        return res.status(404).json({
+          message: "Booking not found",
         });
+      }
 
-      res.json(bookings);
+      if (booking.status === "completed") {
+        return res.status(400).json({
+          message: "Booking already completed",
+        });
+      }
 
-    } catch (error) {
+      if (booking.status !== "return_requested") {
+        return res.status(400).json({
+          message: "Return request not found",
+        });
+      }
 
-      console.error(error);
+      if (booking.returnedAt) {
+        return res.status(400).json({
+          message: "Booking already returned",
+        });
+      }
+      if (booking.bookingType === "gear" && booking.gearsBooked) {
 
-      res.status(500).json({
-        message:
-          "Failed to fetch history",
+  for (const item of booking.gearsBooked as any[]) {
+
+    const gear = await prisma.gear.findUnique({
+      where: { id: item.gearId }
+    });
+
+    if (gear) {
+
+      await prisma.gear.update({
+        where: { id: item.gearId },
+        data: {
+          availableQuantity:
+            gear.availableQuantity + item.quantity
+        }
       });
 
     }
+
+  }
+
+}
+      await prisma.booking.update({
+
+        where: {
+          id: bookingId,
+        },
+
+        data: {
+
+          status:
+            "completed",
+
+          returnedAt:
+            new Date(),
+
+        },
+
+      });
+
+      res.json({
+
+        message:
+          "Return Approved",
+
+        });
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+
+        message:
+          "Approval Failed",
+
+      });
+        
+    }
+
   }
 );
+
 // Student: Get their bookings
 app.get("/users/:userId/bookings", async (req: Request, res: Response) => {
   try {
@@ -854,6 +1461,27 @@ app.get("/students/:userId/history", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to fetch student history" });
   }
 });
+app.get("/returns/pending",async (req, res) => {
+
+    const bookings =await prisma.booking.findMany({
+
+        where: {
+          status:
+            "return_requested",
+        },
+
+        include: {
+          user: true,
+          sport: true,
+          slot: true,
+        },
+
+      });
+
+    res.json(bookings);
+
+  }
+);
 
 // ==================== GEAR ISSUANCE ====================
 
@@ -975,7 +1603,167 @@ app.get("/issued-gears", async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to fetch issued gears" });
   }
 });
+app.post("/team-reservations",
+  async (req, res) => {
+    
+    try {
+      console.log(req.body);
+      const {
+  teamName,
+  sportId,
+  resourceUnitIds,
+  startDateTime,
+  durationMinutes,
+  bookedById,
+  purpose,
+  reservationMessage,
+  
+} = req.body;
+if (
+  !Array.isArray(resourceUnitIds) ||
+  resourceUnitIds.length === 0
+) {
+  return res.status(400).json({
+    message:
+      "Select at least one resource",
+  });
+}
 
+      const reservation =
+await prisma.teamReservation.create({
+
+
+  data: {
+
+    teamName,
+    purpose,
+    sportId,
+
+    startDateTime: new Date(startDateTime),
+    durationMinutes,
+
+    bookedById,
+
+    resourcesUnit: {
+
+      create: resourceUnitIds.map(
+        (resourceUnitId: number) => ({
+
+          resourceUnitId,
+
+        })
+      ),
+
+    },
+
+  },
+
+  include: {
+
+    resourcesUnit: {
+      include: {
+        resourceUnit: true,
+      },
+    },
+
+  },
+
+});
+
+res.json(reservation);
+
+    } catch (error: any) {
+
+  console.log(
+    "TEAM RESERVATION ERROR:",
+    error
+  );
+
+  res.status(500).json({
+  message: "Failed to create reservation",
+  error:
+    error instanceof Error
+      ? error.message
+      : String(error),
+});
+
+}
+
+  }
+);
+app.get("/team-reservations",
+  async (req, res) => {
+
+    try {
+
+      const reservations =
+        await prisma.teamReservation.findMany({
+
+          include: {
+  sport: true,
+  bookedBy: true,
+  resourcesUnit: {
+
+    include: {
+      resourceUnit: true,
+    },
+
+  },
+},
+
+          orderBy: {
+            startDateTime: "asc",
+          },
+
+        });
+
+      res.json(reservations);
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+        message:
+          "Failed to fetch reservations",
+      });
+
+    }
+
+  }
+);
+app.delete("/team-reservations/:id",
+  async (req, res) => {
+
+    try {
+
+      const id =
+        Number(req.params.id);
+
+      await prisma.teamReservation.delete({
+
+        where: { id },
+
+      });
+
+      res.json({
+        message:
+          "Reservation deleted",
+      });
+
+    } catch (error) {
+
+      console.log(error);
+
+      res.status(500).json({
+        message:
+          "Delete failed",
+      });
+
+    }
+
+  }
+);
 // ==================== NOTICES ====================
 
 // Admin: Create notice

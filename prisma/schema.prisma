@@ -22,12 +22,12 @@ model User {
 
   createdAt DateTime @default(now())
 
-  bookings        Booking[]
-  requests        Request[]
-  issuedGears     IssuedGear[]
-  issueRequests   IssueRequest[]
-  Slot            Slot[]
-  TeamReservation TeamReservation[]
+  bookings         Booking[]
+  requests         Request[]
+  issuedGears      IssuedGear[]
+  issueRequests    IssueRequest[]
+  Slot             Slot[]
+  teamReservations TeamReservation[]
 }
 
 model Sport {
@@ -35,11 +35,12 @@ model Sport {
 
   name String @unique
 
-  // Slot System Configuration
-  hasSlotSystem       Boolean @default(false)
-  slotDurationMinutes Int     @default(30) // 30 min, 60 min, 90 min, etc.
+  resourceType String @default("Court")
 
-  // Resource Management
+  hasSlotSystem Boolean @default(false)
+
+  slotDurationMinutes Int @default(30)
+
   totalCourts     Int @default(1)
   availableCourts Int @default(1)
 
@@ -48,14 +49,17 @@ model Sport {
 
   createdAt DateTime @default(now())
 
-  slots             Slot[]
-  gears             Gear[]
-  bookings          Booking[]
-  notices           Notice[]
-  resources         Resource[]
-  hasDynamicBooking Boolean           @default(true)
-  hasTeamSlots      Boolean           @default(false)
-  TeamReservation   TeamReservation[]
+  slots         Slot[]
+  gears         Gear[]
+  bookings      Booking[]
+  notices       Notice[]
+  resourceUnits ResourceUnit[]
+
+  hasDynamicBooking Boolean @default(true)
+
+  teamReservations TeamReservation[]
+
+  slotCapacity Int @default(1)
 }
 
 // Only for slot-based sports
@@ -74,11 +78,12 @@ model Slot {
   bookedBy   User?   @relation(fields: [bookedById], references: [id], onDelete: SetNull)
 
   bookings Booking[]
-  createdAt DateTime @default(now())
-  
+
   maxCapacity Int @default(1)
 
   bookedCount Int @default(0)
+
+  createdAt DateTime @default(now())
 
   @@unique([sportId, startTime, endTime])
 }
@@ -102,19 +107,36 @@ model Gear {
   createdAt DateTime @default(now())
 }
 
-model Resource {
-  id Int @id @default(autoincrement())
+// model Resource {
+//   id   Int    @id @default(autoincrement())
+//   name String
+//   type String
 
-  name String // Court, Table, Field, etc.
-  type String // court, table, field
+//   sportId Int
+//   sport   Sport @relation(fields: [sportId], references: [id])
+
+//   totalAvailable     Int
+//   currentlyAvailable Int
+// }
+
+model ResourceUnit {
+  id Int @id @default(autoincrement())
 
   sportId Int
   sport   Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
 
-  totalAvailable     Int
-  currentlyAvailable Int
+  name String
+  type String
+
+  status             String  @default("available")
+  maintenanceMessage String?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  reservationLinks TeamReservationResource[]
 }
 
 model Booking {
@@ -136,15 +158,18 @@ model Booking {
   active          Boolean @default(true)
   status          String  @default("active") // active, cancelled, completed, returned
 
-  bookedAt    DateTime  @default(now())
-  startTime   DateTime?
-  endTime     DateTime?
-  cancelledAt DateTime?
+  bookedAt          DateTime  @default(now())
+  startTime         DateTime?
+  endTime           DateTime?
+  cancelledAt       DateTime?
   returnRequestedAt DateTime?
-returnedAt DateTime?
-returnedById Int?
+  returnedAt        DateTime?
+  returnedById      Int?
 
-  notes String?
+  notes          String?
+  resourceUnitId Int?
+
+  resourceUnit ResourceUnit? @relation(fields: [resourceUnitId], references: [id])
 }
 
 model IssuedGear {
@@ -219,16 +244,40 @@ model TeamReservation {
   id Int @id @default(autoincrement())
 
   teamName String
-  sportId  Int
-  sport    Sport  @relation(fields: [sportId], references: [id], onDelete: Cascade)
 
-  startTime DateTime
-  endTime   DateTime
+  purpose String?
+
+  sportId Int
+
+  sport Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  startDateTime DateTime
+
+  durationMinutes Int
+
+  reservationMessage String?
 
   bookedById Int?
-  bookedBy   User? @relation(fields: [bookedById], references: [id], onDelete: SetNull)
+
+  bookedBy User? @relation(fields: [bookedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
+
+  resourcesUnit TeamReservationResource[]
+}
+
+model TeamReservationResource {
+  id Int @id @default(autoincrement())
+
+  reservationId Int
+
+  reservation TeamReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  resourceUnitId Int
+
+  resourceUnit ResourceUnit @relation(fields: [resourceUnitId], references: [id], onDelete: Cascade)
+
+  @@unique([reservationId, resourceUnitId])
 }
 
 model Admin {
