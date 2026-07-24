@@ -1,20 +1,73 @@
 # Sports Management System Backend
 
-Backend APIs and database system for the college sports management platform.
+Backend services for the Sports Management System built using Express.js, TypeScript, and Prisma.
 
-## Planned Features
+The backend provides REST APIs for managing users, sports, bookings, resources, maintenance, and team reservations.
 
-- Authentication
-- Role-based access
-- Equipment management
-- Slot booking system
-- Swimming pass management
-- Inventory tracking
-- Admin controls
+---
 
-## Tech Stack
+# Features
+
+## Authentication
+
+- User login
+- User registration
+- Role-based authentication
+
+## Sports Management
+
+- Create sports
+- Update sports
+- Delete sports
+- Retrieve sports
+
+## Resource Management
+
+- Manage resources
+- Manage resource units
+- Resource allocation
+
+## Team Reservations
+
+- Create team reservations
+- Multi-resource reservations
+- Reservation management
+
+## Maintenance Management
+
+- Schedule maintenance
+- Resource-level maintenance
+- Maintenance notices
+
+## Other Modules
+
+- Booking APIs
+- Staff operations
+- Dashboard data
+- Notice management
+
+---
+
+# Tech Stack
 
 - Node.js
 - Express.js
-- PostgreSQL
-- Prisma
+- TypeScript
+- Prisma ORM
+- SQLite (Development)
+
+---
+
+# Project Status
+
+This backend is a working prototype that powers the Sports Management System frontend.
+
+Core modules including authentication, sports management, resource management, maintenance, and team reservations have been implemented.
+
+Additional features and refinements are planned as the project evolves.
+
+---
+
+# Author
+
+**Krish Anand**
