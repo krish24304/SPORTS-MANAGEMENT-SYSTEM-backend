@@ -31,47 +31,36 @@ router.post("/", async (req, res) => {
   try {
     const {
       name,
-      hasDynamicBooking,
+      hasSlotSystem,
       slotDurationMinutes,
       slotCapacity,
       resourceType,
-      quantity,
       totalCourts,
-      resources,
+      resourceUnits,
     } = req.body;
 
     const sport = await prisma.sport.create({
       data: {
         name,
         resourceType,
-        hasDynamicBooking,
+        hasSlotSystem,
         slotDurationMinutes,
         slotCapacity,
         totalCourts,
         
-        availableCourts: quantity,
+        availableCourts: totalCourts,
       },
     });
 
-    if (resources?.length) {
-      await prisma.resource.createMany({
-        data: resources.map((resource: any) => ({
-          sportId: sport.id,
-          name: resource.name,
-          type: resourceType,
-          totalAvailable: 1,
-          currentlyAvailable: 1,
-        })),
-      });
-
-      await prisma.resourceUnit.createMany({
-        data: resourceUnits.map((resource: any) => ({
-          sportId: sport.id,
-          name: resource.name,
-          type: resourceType,
-        })),
-      });
-    }
+    if (resourceUnits?.length) {
+  await prisma.resourceUnit.createMany({
+    data: resourceUnits.map((resource: any) => ({
+      sportId: sport.id,
+      name: resource.name,
+      type: resourceType,
+    })),
+  });
+}
 
     res.json(sport);
   } catch (error) {

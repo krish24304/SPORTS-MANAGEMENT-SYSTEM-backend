@@ -16,6 +16,106 @@ app.use("/resources", resourceRoutes);
 app.use("/resource-units", resourceUnitRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
+// Simple in-memory storage for frontend features (announcements, return requests, anonymous requests)
+// These are lightweight endpoints to allow the frontend to remove hardcoded demo data.
+let announcements: any[] = [
+  {
+    id: Date.now(),
+    title: "🏀 Basketball Tournament",
+    message: "Basketball Tournament starts tomorrow at 9:00 AM.",
+    audience: "Everyone",
+    createdAt: "Just now",
+  },
+];
+
+let returnRequests: any[] = [
+  {
+    id: 1,
+    student: "Ali Ahmed",
+    borrowed: "Football",
+    quantity: 2,
+    borrowDate: "31 Jul 2026",
+    borrowTime: "10:15 AM",
+    duration: "1 Hour",
+    status: "Pending",
+    verified: true,
+    requestDate: "Today",
+    idCard: "/uploads/id-card-demo.jpg",
+    requestTime: "10:15 AM",
+  },
+];
+
+let anonymousRequests: any[] = [
+  {
+    id: 1,
+    message: "Can we extend badminton court timings during weekends?",
+    date: "Today",
+    time: "10:25 AM",
+    viewed: false,
+  },
+];
+
+// Announcements endpoints
+app.get("/announcements", (req: Request, res: Response) => {
+  res.json(announcements);
+});
+
+app.post("/announcements", (req: Request, res: Response) => {
+  const { title, message, audience } = req.body;
+  const a = {
+    id: Date.now(),
+    title: title || "Announcement",
+    message,
+    audience: audience || "Everyone",
+    createdAt: new Date().toLocaleString(),
+  };
+  announcements.unshift(a);
+  res.json(a);
+});
+
+app.delete("/announcements/:id", (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  announcements = announcements.filter((a) => a.id !== id);
+  res.json({ message: "Deleted" });
+});
+
+// Return requests endpoints
+app.get("/return-requests", (req: Request, res: Response) => {
+  res.json(returnRequests);
+});
+
+app.post("/return-requests", (req: Request, res: Response) => {
+  const item = { id: Date.now(), ...req.body };
+  returnRequests.unshift(item);
+  res.json(item);
+});
+
+// Anonymous requests endpoints
+app.get("/anonymous-requests", (req: Request, res: Response) => {
+  res.json(anonymousRequests);
+});
+
+app.post("/anonymous-requests", (req: Request, res: Response) => {
+  const item = { id: Date.now(), ...req.body };
+  anonymousRequests.unshift(item);
+  res.json(item);
+});
+
+// Return requests update endpoint
+app.put('/return-requests/:id', (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const idx = returnRequests.findIndex((r) => r.id === id);
+    if (idx === -1) return res.status(404).json({ message: 'Not found' });
+    const updated = { ...returnRequests[idx], ...req.body };
+    returnRequests[idx] = updated;
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed' });
+  }
+});
+
 // ==================== AUTHENTICATION ====================
 
 // U
@@ -1629,20 +1729,44 @@ if (
   });
 }
 
-      const reservation =
-await prisma.teamReservation.create({
+      const start = new Date(startDateTime);
 
+const end = new Date(
+  start.getTime() + durationMinutes * 60000
+);
+
+const reservation =
+await prisma.teamReservation.create({
 
   data: {
 
     teamName,
-    purpose,
-    sportId,
 
-    startDateTime: new Date(startDateTime),
+    purpose,
+
+    sport: {
+      connect: {
+        id: Number(sportId),
+      },
+    },
+
+    startDateTime: start,
+
+    endDateTime: end,
+
     durationMinutes,
 
-    bookedById,
+    ...(bookedById
+  ? {
+      bookedBy: {
+        connect: {
+          id: Number(bookedById),
+        },
+      },
+    }
+  : {}),
+
+    reservationMessage,
 
     resourcesUnit: {
 
@@ -1661,9 +1785,13 @@ await prisma.teamReservation.create({
   include: {
 
     resourcesUnit: {
+
       include: {
+
         resourceUnit: true,
+
       },
+
     },
 
   },
@@ -1835,6 +1963,171 @@ app.get("/bookings/active", async (req, res) => {
     });
   }
 });
+
+// ==================== LIVE BOOKINGS ====================
+
+// Staff: Get currently active/live bookings
+app.get("/bookings/live", async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        status: "active",
+        OR: [
+          // Gear-only bookings do not necessarily have start/end times.
+          // They are still considered live while status is active.
+          {
+            startTime: null,
+          },
+
+          // Time-based booking currently in progress
+          {
+            AND: [
+              {
+                startTime: {
+                  lte: now,
+                },
+              },
+              {
+                OR: [
+                  {
+                    endTime: null,
+                  },
+                  {
+                    endTime: {
+                      gte: now,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            rollNo: true,
+            phone: true,
+            idCardPhoto: true,
+          },
+        },
+
+        sport: {
+          select: {
+            id: true,
+            name: true,
+            hasSlotSystem: true,
+            resourceType: true,
+          },
+        },
+
+        slot: true,
+
+        resourceUnit: true,
+      },
+
+      orderBy: {
+        bookedAt: "desc",
+      },
+    });
+
+    const formattedBookings = bookings.map((booking) => {
+      let gears: any[] = [];
+
+      if (booking.gearsBooked) {
+        try {
+          gears = Array.isArray(booking.gearsBooked)
+            ? booking.gearsBooked
+            : [];
+        } catch {
+          gears = [];
+        }
+      }
+
+      let resources: any[] = [];
+
+      if (booking.resourcesBooked) {
+        try {
+          resources = Array.isArray(booking.resourcesBooked)
+            ? booking.resourcesBooked
+            : [];
+        } catch {
+          resources = [];
+        }
+      }
+
+      return {
+        id: booking.id,
+
+        student: {
+          id: booking.user.id,
+          name: booking.user.name,
+          email: booking.user.email,
+          rollNo: booking.user.rollNo,
+          phone: booking.user.phone,
+          idCardPhoto: booking.user.idCardPhoto,
+        },
+
+        sport: {
+          id: booking.sport.id,
+          name: booking.sport.name,
+          hasSlotSystem: booking.sport.hasSlotSystem,
+          resourceType: booking.sport.resourceType,
+        },
+
+        bookingType: booking.bookingType,
+
+        status: booking.status,
+
+        bookedAt: booking.bookedAt,
+
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+
+        slot: booking.slot
+          ? {
+              id: booking.slot.id,
+              startTime: booking.slot.startTime,
+              endTime: booking.slot.endTime,
+              slotType: booking.slot.slotType,
+            }
+          : null,
+
+        resourceUnit: booking.resourceUnit
+          ? {
+              id: booking.resourceUnit.id,
+              name: booking.resourceUnit.name,
+              type: booking.resourceUnit.type,
+            }
+          : null,
+
+        gearsBooked: gears,
+
+        resourcesBooked: resources,
+
+        notes: booking.notes,
+      };
+    });
+
+    res.json(formattedBookings);
+  } catch (error) {
+    console.error("LIVE BOOKINGS ERROR:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch live bookings",
+    });
+  }
+});
+
+
+
+
 // ==================== SERVER ====================
 
 const PORT = process.env.PORT || 5000;
@@ -1845,36 +2138,3 @@ app.listen(PORT, () => {
 
 export default app;
 
-
-// import express from "express";
-// import cors from "cors";
-// import path from "path";
-
-// import authRoutes from "./routes/authRoutes";
-// import sportRoutes from "./routes/sportRoutes";
-// import slotRoutes from "./routes/slotRoutes";
-// import gearRoutes from "./routes/gearRoutes";
-// import bookingRoutes from "./routes/bookingRoutes";
-
-// const app = express();
-
-// app.use(cors());
-// app.use(express.json());
-
-// app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
-
-// app.use("/auth", authRoutes);
-// app.use("/sports", sportRoutes);
-// app.use("/slots", slotRoutes);
-// app.use("/gears", gearRoutes);
-// app.use("/bookings", bookingRoutes);
-
-// app.get("/", (req, res) => {
-//   res.send("Sports Management Backend Running");
-// });
-
-// const PORT = process.env.PORT || 5000;
-
-// app.listen(PORT, () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
