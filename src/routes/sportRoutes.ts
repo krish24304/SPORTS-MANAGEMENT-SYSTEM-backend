@@ -1,5 +1,5 @@
 import express from "express";
-import { prisma } from "../lib/prisma";
+import prisma from "../lib/prisma";
 
 const router = express.Router();
 
@@ -10,12 +10,25 @@ router.get("/", async (req, res) => {
     const sports = await prisma.sport.findMany({
       include: {
         gears: true,
-        resources: true,
-        resourceUnits: true,
+        resourceUnits: {
+          orderBy: { id: "asc" },
+        },
+        slots: true,
+        bookings: true,
+        notices: true,
       },
     });
 
-    res.json(sports);
+    const formatted = sports.map((sport) => ({
+      ...sport,
+      resources: sport.resourceUnits || [],
+      totalBookings: sport.bookings ? sport.bookings.length : 0,
+      totalStudents: sport.bookings
+        ? new Set(sport.bookings.map((b: any) => b.userId)).size
+        : 0,
+    }));
+
+    res.json(formatted);
   } catch (error) {
     console.log(error);
 
@@ -38,42 +51,41 @@ router.post("/", async (req, res) => {
       quantity,
       totalCourts,
       resources,
+      availableCourts,
     } = req.body;
 
     const sport = await prisma.sport.create({
       data: {
         name,
-        resourceType,
-        hasDynamicBooking,
-        slotDurationMinutes,
-        slotCapacity,
-        totalCourts,
-        
-        availableCourts: quantity,
+        resourceType: resourceType || "Court",
+        hasDynamicBooking: hasDynamicBooking ?? false,
+        slotDurationMinutes: slotDurationMinutes ?? 30,
+        totalCourts: totalCourts ?? 1,
+        availableCourts: availableCourts ?? quantity ?? totalCourts ?? 1,
       },
     });
 
     if (resources?.length) {
-      await prisma.resource.createMany({
-        data: resources.map((resource: any) => ({
-          sportId: sport.id,
-          name: resource.name,
-          type: resourceType,
-          totalAvailable: 1,
-          currentlyAvailable: 1,
-        })),
-      });
-
+      // Create Resource Units for this sport
       await prisma.resourceUnit.createMany({
-        data: resourceUnits.map((resource: any) => ({
+        data: resources.map((r: any) => ({
           sportId: sport.id,
-          name: resource.name,
-          type: resourceType,
+          name: r.name,
+          type: resourceType || "Court",
+          status: r.status || "available",
         })),
       });
     }
 
-    res.json(sport);
+    const full = await prisma.sport.findUnique({
+      where: { id: sport.id },
+      include: { resourceUnits: true, gears: true, slots: true, bookings: true, notices: true },
+    });
+
+    res.json({
+      ...full,
+      resources: full?.resourceUnits ?? [],
+    });
   } catch (error) {
     console.log(error);
 

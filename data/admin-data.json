@@ -1,0 +1,36 @@
+{
+  "announcements": [
+    {
+      "id": 1788028855932,
+      "title": "🏀 Basketball Tournament",
+      "message": "Basketball Tournament starts tomorrow at 9:00 AM.",
+      "audience": "Everyone",
+      "createdAt": "Just now"
+    }
+  ],
+  "returnRequests": [
+    {
+      "id": 1,
+      "student": "Ali Ahmed",
+      "borrowed": "Football",
+      "quantity": 2,
+      "borrowDate": "31 Jul 2026",
+      "borrowTime": "10:15 AM",
+      "duration": "1 Hour",
+      "status": "Pending",
+      "verified": true,
+      "requestDate": "Today",
+      "idCard": "/uploads/id-card-demo.jpg",
+      "requestTime": "10:15 AM"
+    }
+  ],
+  "anonymousRequests": [
+    {
+      "id": 1,
+      "message": "Can we extend badminton court timings during weekends?",
+      "date": "Today",
+      "time": "10:25 AM",
+      "viewed": false
+    }
+  ]
+}

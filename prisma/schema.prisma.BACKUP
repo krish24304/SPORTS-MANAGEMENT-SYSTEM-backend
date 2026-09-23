@@ -160,10 +160,8 @@ model Notice {
   message   String
   type      String   @default("sport")
   createdAt DateTime @default(now())
-  expiresAt DateTime?
-
   sportId   Int?
-  sport     Sport?  @relation(fields: [sportId], references: [id])
+  sport     Sport?   @relation(fields: [sportId], references: [id])
 }
 
 model TeamReservation {
